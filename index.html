@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบลงเวลาออฟฟิศ</title>
+    <title>ระบบลงเวลาสแกนใบหน้า</title>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; margin-top: 20px; background-color: #f4f6f9; }
         .container { background: white; padding: 20px; border-radius: 15px; display: inline-block; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 90%; max-width: 400px; box-sizing: border-box; }
@@ -22,10 +22,10 @@
 <body>
   <div class="container">
     <h2>📸 สแกนใบหน้าเข้า-ออกงาน</h2>
-    <p id="info">ระบบปลอดภัยผ่าน Cloud HTTPS 100%</p>
+    <p id="info">ระบบปลอดภัยคู่ขนาน Cloud + ESP32 Local</p>
     
     <video id="video" autoplay muted playsinline></video>
-    <div id="status">✅ หน้าเว็บพร้อมทำงาน</div>
+    <div id="status">✅ หน้าเว็บพร้อมใช้งาน</div>
     
     <button id="cameraBtn" class="btn-main" onclick='startVideo()'>📷 เปิดกล้องเพื่อตอกบัตร</button>
     
@@ -38,12 +38,13 @@
   <div id="successModal" class="modal"><div class='modal-content'>
     <div id="modalIcon" class="success-icon">🎉</div>
     <h3 id="modalTitle" style="margin:10px 0; color:#2ec4b6;">บันทึกข้อมูลสำเร็จ!</h3>
-    <p id="successDetail" style="color:#555; margin-bottom:0;">เรียบร้อยแล้ว</p>
+    <p id="successDetail" style="color:#555; margin-bottom:0; white-space: pre-line;">เรียบร้อยแล้ว</p>
   </div></div>
 
   <script>
-    // ⚠️ วาง GOOGLE_SCRIPT_ID ของคุณให้ถูกต้องตรงนี้
     const GOOGLE_SCRIPT_ID = "AKfycbwgKqWIAtba2JjBudOGoNe6DoBF2NDHkYP_FKCXIP4qK5ZQDf3YKulOipstdVyrB0aC";
+    // ⚠️ ระบุไอพีของบอร์ด ESP32 ของคุณตรงนี้
+    const ESP32_IP = "192.168.1.52"; 
 
     const video = document.getElementById('video');
     const statusDiv = document.getElementById('status');
@@ -61,7 +62,7 @@
           video.style.display = 'block'; 
           cameraBtn.style.display = 'none'; 
           actionGroup.style.display = 'flex'; 
-          statusDiv.innerText = '📷 กล้องพร้อมแล้ว! กรุณามองกล้องแล้วเลือกสถานะ';
+          statusDiv.innerText = '📷 กล้องพร้อมแล้ว! มองกล้องแล้วเลือกสถานะ';
           isCameraReady = true;
         })
         .catch(err => {
@@ -73,39 +74,42 @@
       if(!isCameraReady) return;
       document.getElementById('btnIn').disabled = true;
       document.getElementById('btnOut').disabled = true;
-      statusDiv.innerText = '⏳ กำลังบันทึกเวลาลง Google Sheets...';
-      
-      let empName = 'พนักงาน_สแกนผ่านกล้อง';
-      var url = 'https://script.google.com/macros/s/' + GOOGLE_SCRIPT_ID + "/exec?emp_code=" + encodeURIComponent(empName) + "&action=" + encodeURIComponent(action);
-      
-      // ยิงข้อมูลไปหา Google Sheets ตรง ๆ 
-      fetch(url)
-        .then(res => res.json())
-        .then(data => {
-          document.getElementById('modalIcon').innerText = "🎉";
-          document.getElementById('modalTitle').style.color = "#2ec4b6";
-          document.getElementById('modalTitle').innerText = "บันทึกข้อมูลสำเร็จ!";
-          successDetail.innerText = "สถานะ: " + action + " เรียบร้อย";
-          successModal.style.display = 'flex';
-          
-          setTimeout(() => {
-            successModal.style.display = 'none';
-            document.getElementById('btnIn').disabled = false;
-            document.getElementById('btnOut').disabled = false;
-            statusDiv.innerText = '📷 กล้องพร้อมแล้ว! เลือกสถานะใหม่';
-          }, 3000);
+      statusDiv.innerText = '📡 กำลังตรวจสอบว่าคุณอยู่ในออฟฟิศจริงหรือไม่...';
+
+      // 🟢 บูรณาการแอบยิงสัญญาณไปหาบอร์ด ESP32 ในออฟฟิศก่อน
+      fetch('http://' + ESP32_IP + '/check', { mode: 'cors' })
+        .then(res => res.text())
+        .then(text => {
+          if(text.trim() === "OK_IN_OFFICE") {
+            statusDiv.innerText = '⏳ อยู่ในออฟฟิศจริง! กำลังบันทึกเวลาลง Google Sheets...';
+            let empName = 'พนักงาน_สแกนผ่านกล้อง';
+            var url = 'https://script.google.com/macros/s/' + GOOGLE_SCRIPT_ID + '/exec?emp_code=' + encodeURIComponent(empName) + '&action=' + encodeURIComponent(action);
+            
+            return fetch(url);
+          } else {
+            throw new Error("Wrong Token");
+          }
+        })
+        .then(() => {
+          showModal("🎉", "#2ec4b6", "บันทึกข้อมูลสำเร็จ!", "สถานะ: " + action + " เรียบร้อย");
         })
         .catch(err => {
-          // กรณีเผื่อติด CORS แต่ข้อมูลเข้าชีตแล้ว
-          document.getElementById('modalIcon').innerText = "🎉";
-          document.getElementById('modalTitle').innerText = "บันทึกข้อมูลสำเร็จ!";
-          successModal.style.display = 'flex';
-          setTimeout(() => {
-            successModal.style.display = 'none';
-            document.getElementById('btnIn').disabled = false;
-            document.getElementById('btnOut').disabled = false;
-          }, 3000);
+          showModal("❌", "#e71d36", "ปฏิเสธการลงเวลา!", "ไม่พบสัญญาณตัวเครื่องในออฟฟิศ\nกรุณาต่อ Wi-Fi ออฟฟิศก่อนตอกบัตร");
         });
+    }
+
+    function showModal(icon, color, title, detail) {
+      document.getElementById('modalIcon').innerText = icon;
+      document.getElementById('modalTitle').style.color = color;
+      document.getElementById('modalTitle').innerText = title;
+      successDetail.innerText = detail;
+      successModal.style.display = 'flex';
+      setTimeout(() => {
+        successModal.style.display = 'none';
+        document.getElementById('btnIn').disabled = false;
+        document.getElementById('btnOut').disabled = false;
+        statusDiv.innerText = '📷 กล้องพร้อมแล้ว! เลือกสถานะใหม่';
+      }, 4000);
     }
   </script>
 </body>
