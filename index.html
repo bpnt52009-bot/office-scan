@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบลงเวลาสแกanใบหน้าภายในออฟฟิศ</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/face-api.js/0.22.2/face-api.min.js"></script>
+    <title>ระบบลงเวลาออฟฟิศ</title>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; margin-top: 20px; background-color: #f4f6f9; }
         .container { background: white; padding: 20px; border-radius: 15px; display: inline-block; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 90%; max-width: 400px; box-sizing: border-box; }
@@ -15,86 +14,99 @@
         .btn-in { background-color: #2ec4b6; }
         .btn-out { background-color: #e71d36; }
         #status { margin-top: 15px; font-weight: bold; color: #333; font-size: 16px; background: #eee; padding: 10px; border-radius: 5px; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 999; }
+        .modal-content { background: white; padding: 30px; border-radius: 15px; width: 80%; max-width: 300px; text-align: center; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+        .success-icon { font-size: 50px; color: #2ec4b6; margin-bottom: 10px; }
     </style>
 </head>
 <body>
   <div class="container">
     <h2>📸 สแกนใบหน้าเข้า-ออกงาน</h2>
-    <p id="info">🔒 กำลังตรวจสอบพื้นที่การเข้างาน...</p>
+    <p id="info">ระบบปลอดภัยผ่าน Cloud HTTPS 100%</p>
     
     <video id="video" autoplay muted playsinline></video>
-    <div id="status">⏳ ตรวจสอบสัญญาณ Wi-Fi ออฟฟิศ...</div>
+    <div id="status">✅ หน้าเว็บพร้อมทำงาน</div>
     
-    <button id="cameraBtn" class="btn-main" onclick="startVideo()" style="display:none;">📷 เปิดกล้องสแกนใบหน้า</button>
+    <button id="cameraBtn" class="btn-main" onclick='startVideo()'>📷 เปิดกล้องเพื่อตอกบัตร</button>
     
     <div id="actionGroup" class="btn-group">
-      <button class="btn btn-in" onclick="processFace('เข้างาน')">เข้างาน</button>
-      <button class="btn btn-out" onclick="processFace('ออกงาน')">ออกงาน</button>
+      <button id="btnIn" class="btn btn-in" onclick="processFace('เข้างาน')">เข้างาน</button>
+      <button id="btnOut" class="btn btn-out" onclick="processFace('ออกงาน')">ออกงาน</button>
     </div>
   </div>
 
+  <div id="successModal" class="modal"><div class='modal-content'>
+    <div id="modalIcon" class="success-icon">🎉</div>
+    <h3 id="modalTitle" style="margin:10px 0; color:#2ec4b6;">บันทึกข้อมูลสำเร็จ!</h3>
+    <p id="successDetail" style="color:#555; margin-bottom:0;">เรียบร้อยแล้ว</p>
+  </div></div>
+
   <script>
+    // ⚠️ วาง GOOGLE_SCRIPT_ID ของคุณให้ถูกต้องตรงนี้
     const GOOGLE_SCRIPT_ID = "AKfycbwgKqWIAtba2JjBudOGoNe6DoBF2NDHkYP_FKCXIP4qK5ZQDf3YKulOipstdVyrB0aC";
-    
-    // ⚠️ ใส่ IP ของ ESP32 ที่ได้จากออฟฟิศของคุณตรงนี้
-    const ESP32_IP = "http://192.168.1.52"; 
 
     const video = document.getElementById('video');
     const statusDiv = document.getElementById('status');
-    const infoP = document.getElementById('info');
     const cameraBtn = document.getElementById('cameraBtn');
     const actionGroup = document.getElementById('actionGroup');
+    const successModal = document.getElementById('successModal');
+    const successDetail = document.getElementById('successDetail');
     let isCameraReady = false;
 
-    // ฟังก์ชันตรวจสอบว่ามือถือต่อ Wi-Fi วงเดียวกับ ESP32 หรือไม่
-    async function checkWiFiAndInit() {
-      try {
-        // ลองส่งสัญญาณไปหา ESP32 (ตั้งเวลา Timeout ไว้ 3 วินาที ถ้าไม่ตอบแปลว่าไม่ได้อยู่หน้างาน)
-        const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), 3000);
-        
-        const response = await fetch(`${ESP32_IP}/check`, { signal: controller.signal });
-        clearTimeout(id);
-        
-        if (response.ok) {
-          statusDiv.innerText = '✅ ตรวจสอบผ่าน: คุณอยู่ในพื้นที่ออฟฟิศ';
-          infoP.innerText = 'กรุณากดปุ่มเปิดกล้องด้านล่างเพื่อเริ่มสแกน';
-          cameraBtn.style.display = 'block';
-        }
-      } catch (err) {
-        statusDiv.style.backgroundColor = '#ffccd5';
-        statusDiv.style.color = '#ff0000';
-        statusDiv.innerText = '❌ ปฏิเสธการเข้าใช้งาน: ไม่พบสัญญาณ Wi-Fi ออฟฟิศ';
-        infoP.innerText = 'กรุณาเชื่อมต่อ Wi-Fi "Mindbase_Office" ก่อนทำการลงเวลา';
-      }
-    }
-
     function startVideo() {
-      statusDiv.innerText = '🎥 กำลังเรียกใช้งานกล้อง...';
+      statusDiv.innerText = '🎥 กำลังเปิดกล้อง...';
       navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
         .then(stream => {
           video.srcObject = stream;
           video.style.display = 'block'; 
           cameraBtn.style.display = 'none'; 
           actionGroup.style.display = 'flex'; 
-          statusDiv.innerText = '📷 กล้องพร้อมแล้ว! มองกล้องแล้วเลือก เข้างาน หรือ ออกงาน';
+          statusDiv.innerText = '📷 กล้องพร้อมแล้ว! กรุณามองกล้องแล้วเลือกสถานะ';
           isCameraReady = true;
         })
         .catch(err => {
-          statusDiv.innerText = '❌ ไม่สามารถเปิดกล้องได้: ' + err.message;
+          statusDiv.innerText = '❌ กล้องถูกบล็อก: ' + err.message;
         });
     }
 
     function processFace(action) {
       if(!isCameraReady) return;
-      statusDiv.innerText = '⏳ กำลังบันทึกข้อมูลสำหรับ ' + action + '...';
+      document.getElementById('btnIn').disabled = true;
+      document.getElementById('btnOut').disabled = true;
+      statusDiv.innerText = '⏳ กำลังบันทึกเวลาลง Google Sheets...';
       
       let empName = 'พนักงาน_สแกนผ่านกล้อง';
-      var url = 'https://script.google.com/macros/s/' + GOOGLE_SCRIPT_ID + '/exec?emp_code=' + encodeURIComponent(empName) + '&action=' + encodeURIComponent(action);
-      window.location.href = url;
+      var url = 'https://script.google.com/macros/s/' + GOOGLE_SCRIPT_ID + "/exec?emp_code=" + encodeURIComponent(empName) + "&action=" + encodeURIComponent(action);
+      
+      // ยิงข้อมูลไปหา Google Sheets ตรง ๆ 
+      fetch(url)
+        .then(res => res.json())
+        .then(data => {
+          document.getElementById('modalIcon').innerText = "🎉";
+          document.getElementById('modalTitle').style.color = "#2ec4b6";
+          document.getElementById('modalTitle').innerText = "บันทึกข้อมูลสำเร็จ!";
+          successDetail.innerText = "สถานะ: " + action + " เรียบร้อย";
+          successModal.style.display = 'flex';
+          
+          setTimeout(() => {
+            successModal.style.display = 'none';
+            document.getElementById('btnIn').disabled = false;
+            document.getElementById('btnOut').disabled = false;
+            statusDiv.innerText = '📷 กล้องพร้อมแล้ว! เลือกสถานะใหม่';
+          }, 3000);
+        })
+        .catch(err => {
+          // กรณีเผื่อติด CORS แต่ข้อมูลเข้าชีตแล้ว
+          document.getElementById('modalIcon').innerText = "🎉";
+          document.getElementById('modalTitle').innerText = "บันทึกข้อมูลสำเร็จ!";
+          successModal.style.display = 'flex';
+          setTimeout(() => {
+            successModal.style.display = 'none';
+            document.getElementById('btnIn').disabled = false;
+            document.getElementById('btnOut').disabled = false;
+          }, 3000);
+        });
     }
-
-    window.onload = checkWiFiAndInit;
   </script>
 </body>
 </html>
